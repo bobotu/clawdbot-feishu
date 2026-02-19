@@ -1,1 +1,1 @@
-export { FeishuPermSchema, type FeishuPermParams } from "./perm-tools/schemas.js";
+export { FeishuPermSchema, type FeishuPermParams } from "./perm-tools/index.js";

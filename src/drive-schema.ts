@@ -1,1 +1,1 @@
-export { FeishuDriveSchema, type FeishuDriveParams } from "./drive-tools/schemas.js";
+export { FeishuDriveSchema, type FeishuDriveParams } from "./drive-tools/index.js";

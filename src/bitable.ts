@@ -1,1 +1,1 @@
-export { registerFeishuBitableTools } from "./bitable-tools/register.js";
+export { registerFeishuBitableTools } from "./bitable-tools/index.js";

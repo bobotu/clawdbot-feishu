@@ -1,1 +1,1 @@
-export { registerFeishuWikiTools } from "./wiki-tools/register.js";
+export { registerFeishuWikiTools } from "./wiki-tools/index.js";

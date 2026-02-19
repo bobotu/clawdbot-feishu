@@ -1,1 +1,1 @@
-export { registerFeishuDriveTools } from "./drive-tools/register.js";
+export { registerFeishuDriveTools } from "./drive-tools/index.js";

@@ -1,1 +1,1 @@
-export { registerFeishuDocTools } from "./doc-tools/register.js";
+export { registerFeishuDocTools } from "./doc-tools/index.js";

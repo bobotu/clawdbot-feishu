@@ -1,1 +1,1 @@
-export { registerFeishuPermTools } from "./perm-tools/register.js";
+export { registerFeishuPermTools } from "./perm-tools/index.js";

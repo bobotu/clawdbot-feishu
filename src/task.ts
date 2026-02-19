@@ -1,1 +1,1 @@
-export { registerFeishuTaskTools } from "./task-tools/register.js";
+export { registerFeishuTaskTools } from "./task-tools/index.js";

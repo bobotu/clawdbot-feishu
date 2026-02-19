@@ -1,1 +1,1 @@
-export { FeishuWikiSchema, type FeishuWikiParams } from "./wiki-tools/schemas.js";
+export { FeishuWikiSchema, type FeishuWikiParams } from "./wiki-tools/index.js";
