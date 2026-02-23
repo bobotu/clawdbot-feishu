@@ -95,8 +95,19 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount> = {
         dmHistoryLimit: { type: "integer", minimum: 0 },
         textChunkLimit: { type: "integer", minimum: 1 },
         chunkMode: { type: "string", enum: ["length", "newline"] },
+        blockStreaming: { type: "boolean" },
+        blockStreamingCoalesce: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            minChars: { type: "integer", minimum: 1 },
+            maxChars: { type: "integer", minimum: 1 },
+            idleMs: { type: "integer", minimum: 1 },
+          },
+        },
         mediaMaxMb: { type: "number", minimum: 0 },
         renderMode: { type: "string", enum: ["auto", "raw", "card"] },
+        streaming: { type: "boolean" },
         accounts: {
           type: "object",
           additionalProperties: {
@@ -110,6 +121,20 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount> = {
               verificationToken: { type: "string" },
               domain: { type: "string", enum: ["feishu", "lark"] },
               connectionMode: { type: "string", enum: ["websocket", "webhook"] },
+              textChunkLimit: { type: "integer", minimum: 1 },
+              chunkMode: { type: "string", enum: ["length", "newline"] },
+              blockStreaming: { type: "boolean" },
+              blockStreamingCoalesce: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  minChars: { type: "integer", minimum: 1 },
+                  maxChars: { type: "integer", minimum: 1 },
+                  idleMs: { type: "integer", minimum: 1 },
+                },
+              },
+              renderMode: { type: "string", enum: ["auto", "raw", "card"] },
+              streaming: { type: "boolean" },
             },
           },
         },
