@@ -216,6 +216,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     replyOptions: {
       ...replyOptions,
       onModelSelected: prefixContext.onModelSelected,
+      disableBlockStreaming:
+        typeof account.config?.blockStreaming === "boolean"
+          ? !account.config.blockStreaming
+          : undefined,
       onPartialReply: streamingEnabled
         ? (payload: ReplyPayload) => {
             const partialText = normalizeFeishuMarkdownLinks(payload.text ?? "");
