@@ -20,7 +20,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bobotu/feishu-fork.git"
+    "url": "git+https://github.com/bobotu/clawdbot-feishu.git"
   },
   "keywords": [
     "openclaw",
