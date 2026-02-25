@@ -287,55 +287,23 @@ function parseMediaKeys(
 } {
   try {
     const parsed = JSON.parse(content);
+    const imageKey = normalizeFeishuExternalKey(parsed.image_key);
+    const fileKey = normalizeFeishuExternalKey(parsed.file_key);
     switch (messageType) {
-      case "image": {
-        const normalizedImageKey = normalizeFeishuExternalKey(parsed.image_key);
-        if (!normalizedImageKey) {
-          throw new Error("Feishu image download failed: invalid image_key");
-        }
-        return { imageKey: normalizedImageKey };
-      }
-      case "file": {
-        const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
-        if (!normalizedFileKey) {
-          throw new Error("Feishu file download failed: invalid file_key");
-        }
-        return { fileKey: normalizedFileKey, fileName: parsed.file_name };
-      }
-      case "audio": {
-        const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
-        if (!normalizedFileKey) {
-          throw new Error("Feishu audio download failed: invalid file_key");
-        }
-        return { fileKey: normalizedFileKey };
-      }
+      case "image":
+        return { imageKey };
+      case "file":
+        return { fileKey, fileName: parsed.file_name };
+      case "audio":
+        return { fileKey };
       case "video":
-        // Video has both file_key (video) and image_key (thumbnail)
-        {
-          const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
-          if (!normalizedFileKey) {
-            throw new Error("Feishu video download failed: invalid file_key");
-          }
-          const normalizedImageKey = normalizeFeishuExternalKey(parsed.image_key);
-          if (!normalizedImageKey) {
-            throw new Error("Feishu video download failed: invalid image_key");
-          }
-          return { fileKey: normalizedFileKey, imageKey: normalizedImageKey };
-        }
-      case "sticker": {
-        const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
-        if (!normalizedFileKey) {
-          throw new Error("Feishu sticker download failed: invalid file_key");
-        }
-        return { fileKey: normalizedFileKey };
-      }
+        return { fileKey, imageKey };
+      case "sticker":
+        return { fileKey };
       default:
         return {};
     }
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("invalid")) {
-      throw err;
-    }
+  } catch {
     return {};
   }
 }
