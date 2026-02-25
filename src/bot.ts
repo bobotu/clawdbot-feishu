@@ -30,6 +30,7 @@ import {
 import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { runWithFeishuToolContext } from "./tools-common/tool-context.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
+import { normalizeFeishuExternalKey } from "./external-keys.js";
 
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
@@ -242,21 +243,54 @@ function parseMediaKeys(
   try {
     const parsed = JSON.parse(content);
     switch (messageType) {
-      case "image":
-        return { imageKey: parsed.image_key };
-      case "file":
-        return { fileKey: parsed.file_key, fileName: parsed.file_name };
-      case "audio":
-        return { fileKey: parsed.file_key };
+      case "image": {
+        const normalizedImageKey = normalizeFeishuExternalKey(parsed.image_key);
+        if (!normalizedImageKey) {
+          throw new Error("Feishu image download failed: invalid image_key");
+        }
+        return { imageKey: normalizedImageKey };
+      }
+      case "file": {
+        const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
+        if (!normalizedFileKey) {
+          throw new Error("Feishu file download failed: invalid file_key");
+        }
+        return { fileKey: normalizedFileKey, fileName: parsed.file_name };
+      }
+      case "audio": {
+        const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
+        if (!normalizedFileKey) {
+          throw new Error("Feishu audio download failed: invalid file_key");
+        }
+        return { fileKey: normalizedFileKey };
+      }
       case "video":
         // Video has both file_key (video) and image_key (thumbnail)
-        return { fileKey: parsed.file_key, imageKey: parsed.image_key };
-      case "sticker":
-        return { fileKey: parsed.file_key };
+        {
+          const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
+          if (!normalizedFileKey) {
+            throw new Error("Feishu video download failed: invalid file_key");
+          }
+          const normalizedImageKey = normalizeFeishuExternalKey(parsed.image_key);
+          if (!normalizedImageKey) {
+            throw new Error("Feishu video download failed: invalid image_key");
+          }
+          return { fileKey: normalizedFileKey, imageKey: normalizedImageKey };
+        }
+      case "sticker": {
+        const normalizedFileKey = normalizeFeishuExternalKey(parsed.file_key);
+        if (!normalizedFileKey) {
+          throw new Error("Feishu sticker download failed: invalid file_key");
+        }
+        return { fileKey: normalizedFileKey };
+      }
       default:
         return {};
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("invalid")) {
+      throw err;
+    }
     return {};
   }
 }
@@ -289,7 +323,11 @@ function parsePostContent(content: string): {
             textContent += `@${element.user_name || element.user_id || ""}`;
           } else if (element.tag === "img" && element.image_key) {
             // Embedded image
-            imageKeys.push(element.image_key);
+            const normalizedImageKey = normalizeFeishuExternalKey(element.image_key);
+            if (!normalizedImageKey) {
+              throw new Error("Feishu image download failed: invalid image_key");
+            }
+            imageKeys.push(normalizedImageKey);
           }
         }
         textContent += "\n";
@@ -351,7 +389,13 @@ async function resolveFeishuMediaList(params: {
 
   // Handle post (rich text) messages with embedded images
   if (messageType === "post") {
-    const { imageKeys } = parsePostContent(content);
+    let imageKeys: string[] = [];
+    try {
+      ({ imageKeys } = parsePostContent(content));
+    } catch (err) {
+      log?.(`feishu: failed to parse post embedded images: ${String(err)}`);
+      return [];
+    }
     if (imageKeys.length === 0) {
       return [];
     }
@@ -397,7 +441,13 @@ async function resolveFeishuMediaList(params: {
   }
 
   // Handle other media types
-  const mediaKeys = parseMediaKeys(content, messageType);
+  let mediaKeys: ReturnType<typeof parseMediaKeys>;
+  try {
+    mediaKeys = parseMediaKeys(content, messageType);
+  } catch (err) {
+    log?.(`feishu: failed to parse ${messageType} media keys: ${String(err)}`);
+    return [];
+  }
   if (!mediaKeys.imageKey && !mediaKeys.fileKey) {
     return [];
   }
@@ -532,6 +582,7 @@ export async function handleFeishuMessage(params: {
   
   const log = runtime?.log ?? console.log;
   const error = runtime?.error ?? console.error;
+  const senderUserId = event.sender.sender_id.user_id?.trim() || undefined;
 
   // Dedup check: skip if this message was already processed
   const messageId = event.message.message_id;
@@ -618,6 +669,7 @@ export async function handleFeishuMessage(params: {
         groupPolicy: "allowlist",
         allowFrom: senderAllowFrom,
         senderId: ctx.senderOpenId,
+        senderIds: [senderUserId],
         senderName: ctx.senderName,
       });
       if (!senderAllowed) {
@@ -658,13 +710,14 @@ export async function handleFeishuMessage(params: {
       cfg,
     );
     const storeAllowFrom =
-      !isGroup && (dmPolicy !== "open" || shouldComputeCommandAuthorized)
+      !isGroup && dmPolicy !== "allowlist" && (dmPolicy !== "open" || shouldComputeCommandAuthorized)
         ? await core.channel.pairing.readAllowFromStore("feishu").catch(() => [])
         : [];
     const effectiveDmAllowFrom = [...configAllowFrom, ...storeAllowFrom];
     const dmAllowed = resolveFeishuAllowlistMatch({
       allowFrom: effectiveDmAllowFrom,
       senderId: ctx.senderOpenId,
+      senderIds: [senderUserId],
       senderName: ctx.senderName,
     }).allowed;
 
@@ -706,6 +759,7 @@ export async function handleFeishuMessage(params: {
     const senderAllowedForCommands = resolveFeishuAllowlistMatch({
       allowFrom: commandAllowFrom,
       senderId: ctx.senderOpenId,
+      senderIds: [senderUserId],
       senderName: ctx.senderName,
     }).allowed;
     const commandAuthorized = shouldComputeCommandAuthorized

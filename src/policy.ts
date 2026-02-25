@@ -75,6 +75,7 @@ export function isFeishuGroupAllowed(params: {
   groupPolicy: "open" | "allowlist" | "disabled";
   allowFrom: Array<string | number>;
   senderId: string;
+  senderIds?: Array<string | null | undefined>;
   senderName?: string | null;
 }): boolean {
   const { groupPolicy } = params;
