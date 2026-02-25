@@ -408,13 +408,7 @@ async function resolveFeishuMediaList(params: {
 
   // Handle post (rich text) messages with embedded images
   if (messageType === "post") {
-    let imageKeys: string[] = [];
-    try {
-      ({ imageKeys } = parsePostContent(content));
-    } catch (err) {
-      log?.(`feishu: failed to parse post embedded images: ${String(err)}`);
-      return [];
-    }
+    const { imageKeys } = parsePostContent(content);
     if (imageKeys.length === 0) {
       return [];
     }
@@ -460,13 +454,7 @@ async function resolveFeishuMediaList(params: {
   }
 
   // Handle other media types
-  let mediaKeys: ReturnType<typeof parseMediaKeys>;
-  try {
-    mediaKeys = parseMediaKeys(content, messageType);
-  } catch (err) {
-    log?.(`feishu: failed to parse ${messageType} media keys: ${String(err)}`);
-    return [];
-  }
+  const mediaKeys = parseMediaKeys(content, messageType);
   if (!mediaKeys.imageKey && !mediaKeys.fileKey) {
     return [];
   }
