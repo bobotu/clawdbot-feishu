@@ -21,7 +21,7 @@ import {
 import { feishuOnboardingAdapter } from "./onboarding.js";
 
 const meta = {
-  id: "feishu",
+  id: "feishu-fork",
   label: "Feishu",
   selectionLabel: "Feishu/Lark (飞书)",
   docsPath: "/channels/feishu",
@@ -32,7 +32,7 @@ const meta = {
 };
 
 export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount> = {
-  id: "feishu",
+  id: "feishu-fork",
   meta: {
     ...meta,
   },

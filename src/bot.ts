@@ -3,6 +3,8 @@ import {
   buildPendingHistoryContextFromMap,
   recordPendingHistoryEntryIfEnabled,
   clearHistoryEntriesIfEnabled,
+  resolveOpenProviderRuntimeGroupPolicy,
+  warnMissingProviderGroupPolicyFallbackOnce,
   DEFAULT_GROUP_HISTORY_LIMIT,
   type HistoryEntry,
 } from "openclaw/plugin-sdk";
@@ -10,7 +12,7 @@ import type { FeishuConfig, FeishuMessageContext, FeishuMediaInfo, ResolvedFeish
 import { getFeishuRuntime } from "./runtime.js";
 import { createFeishuClient } from "./client.js";
 import { resolveFeishuAccount } from "./accounts.js";
-import { tryRecordMessage } from "./dedup.js";
+import { tryRecordMessagePersistent } from "./dedup.js";
 import {
   resolveFeishuGroupConfig,
   resolveFeishuReplyPolicy,
@@ -212,12 +214,16 @@ function checkBotMentioned(event: FeishuMessageEvent, botOpenId?: string): boole
   return mentions.some((m) => m.id.open_id === botOpenId);
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function stripBotMention(text: string, mentions?: FeishuMessageEvent["message"]["mentions"]): string {
   if (!mentions || mentions.length === 0) return text;
   let result = text;
   for (const mention of mentions) {
-    result = result.replace(new RegExp(`@${mention.name}\\s*`, "g"), "").trim();
-    result = result.replace(new RegExp(mention.key, "g"), "").trim();
+    result = result.replace(new RegExp(`@${escapeRegExp(mention.name)}\\s*`, "g"), "").trim();
+    result = result.replace(new RegExp(escapeRegExp(mention.key), "g"), "").trim();
   }
   return result;
 }
@@ -529,8 +535,7 @@ export async function handleFeishuMessage(params: {
 
   // Dedup check: skip if this message was already processed
   const messageId = event.message.message_id;
-  const dedupAccountId = accountId || "default";
-  if (!tryRecordMessage(messageId, dedupAccountId)) {
+  if (!(await tryRecordMessagePersistent(messageId, account.accountId, log))) {
     log(`feishu: skipping duplicate message ${messageId}`);
     return;
   }
@@ -579,7 +584,18 @@ export async function handleFeishuMessage(params: {
   const useAccessGroups = cfg.commands?.useAccessGroups !== false;
 
   if (isGroup) {
-    const groupPolicy = feishuCfg?.groupPolicy ?? "open";
+    const defaultGroupPolicy = cfg.channels?.defaults?.groupPolicy;
+    const { groupPolicy, providerMissingFallbackApplied } = resolveOpenProviderRuntimeGroupPolicy({
+      providerConfigPresent: cfg.channels?.feishu !== undefined,
+      groupPolicy: feishuCfg?.groupPolicy,
+      defaultGroupPolicy,
+    });
+    warnMissingProviderGroupPolicyFallbackOnce({
+      providerMissingFallbackApplied,
+      providerKey: "feishu",
+      accountId: account.accountId,
+      log,
+    });
     const groupAllowFrom = feishuCfg?.groupAllowFrom ?? [];
 
     // Check if this GROUP is allowed (groupAllowFrom contains group IDs like oc_xxx, not user IDs)

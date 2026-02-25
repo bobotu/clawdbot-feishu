@@ -4,16 +4,23 @@ import type { FeishuConfig, FeishuGroupConfig } from "./types.js";
 export type FeishuAllowlistMatch = {
   allowed: boolean;
   matchKey?: string;
-  matchSource?: "wildcard" | "id" | "name";
+  matchSource?: "wildcard" | "id";
 };
+
+function normalizeFeishuAllowEntry(raw: string): string {
+  const trimmed = raw.trim();
+  const withoutProviderPrefix = trimmed.replace(/^feishu:/i, "");
+  return withoutProviderPrefix.trim().toLowerCase();
+}
 
 export function resolveFeishuAllowlistMatch(params: {
   allowFrom: Array<string | number>;
   senderId: string;
+  senderIds?: Array<string | null | undefined>;
   senderName?: string | null;
 }): FeishuAllowlistMatch {
   const allowFrom = params.allowFrom
-    .map((entry) => String(entry).trim().toLowerCase())
+    .map((entry) => normalizeFeishuAllowEntry(String(entry)))
     .filter(Boolean);
 
   if (allowFrom.length === 0) return { allowed: false };
@@ -21,14 +28,14 @@ export function resolveFeishuAllowlistMatch(params: {
     return { allowed: true, matchKey: "*", matchSource: "wildcard" };
   }
 
-  const senderId = params.senderId.toLowerCase();
-  if (allowFrom.includes(senderId)) {
-    return { allowed: true, matchKey: senderId, matchSource: "id" };
-  }
+  const senderCandidates = [params.senderId, ...(params.senderIds ?? [])]
+    .map((id) => id?.trim().toLowerCase())
+    .filter((id): id is string => Boolean(id));
 
-  const senderName = params.senderName?.toLowerCase();
-  if (senderName && allowFrom.includes(senderName)) {
-    return { allowed: true, matchKey: senderName, matchSource: "name" };
+  for (const senderId of senderCandidates) {
+    if (allowFrom.includes(senderId)) {
+      return { allowed: true, matchKey: senderId, matchSource: "id" };
+    }
   }
 
   return { allowed: false };

@@ -3,6 +3,7 @@ import { createFeishuClient } from "./client.js";
 import { resolveFeishuAccount } from "./accounts.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { resolveReceiveIdType, normalizeFeishuTarget } from "./targets.js";
+import { normalizeFeishuExternalKey } from "./external-keys.js";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -18,6 +19,19 @@ export type DownloadMessageResourceResult = {
   contentType?: string;
   fileName?: string;
 };
+
+async function withTempDownloadPath<T>(
+  prefix: string,
+  fn: (tmpPath: string) => Promise<T>,
+): Promise<T> {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), prefix));
+  const tmpPath = path.join(dir, "download.bin");
+  try {
+    return await fn(tmpPath);
+  } finally {
+    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 /**
  * Download an image from Feishu using image_key.
