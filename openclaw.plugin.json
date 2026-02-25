@@ -1,6 +1,6 @@
 {
-  "id": "feishu",
-  "channels": ["feishu-fork"],
+  "id": "feishu-fork",
+  "channels": ["feishu"],
   "skills": ["./skills"],
   "configSchema": {
     "type": "object",
