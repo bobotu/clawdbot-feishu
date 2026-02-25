@@ -3,6 +3,8 @@ import {
   buildPendingHistoryContextFromMap,
   recordPendingHistoryEntryIfEnabled,
   clearHistoryEntriesIfEnabled,
+  resolveOpenProviderRuntimeGroupPolicy,
+  warnMissingProviderGroupPolicyFallbackOnce,
   DEFAULT_GROUP_HISTORY_LIMIT,
   resolveMentionGatingWithBypass,
   type HistoryEntry,
@@ -11,7 +13,7 @@ import type { FeishuConfig, FeishuMessageContext, FeishuMediaInfo, ResolvedFeish
 import { getFeishuRuntime } from "./runtime.js";
 import { createFeishuClient } from "./client.js";
 import { resolveFeishuAccount } from "./accounts.js";
-import { tryRecordMessage } from "./dedup.js";
+import { tryRecordMessagePersistent } from "./dedup.js";
 import {
   resolveFeishuGroupConfig,
   resolveFeishuReplyPolicy,
@@ -30,6 +32,7 @@ import {
 import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { runWithFeishuToolContext } from "./tools-common/tool-context.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
+import { normalizeFeishuExternalKey } from "./external-keys.js";
 
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
@@ -257,12 +260,16 @@ function checkBotMentioned(
   );
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function stripBotMention(text: string, mentions?: FeishuMessageEvent["message"]["mentions"]): string {
   if (!mentions || mentions.length === 0) return text;
   let result = text;
   for (const mention of mentions) {
-    result = result.replace(new RegExp(`@${mention.name}\\s*`, "g"), "").trim();
-    result = result.replace(new RegExp(mention.key, "g"), "").trim();
+    result = result.replace(new RegExp(`@${escapeRegExp(mention.name)}\\s*`, "g"), "").trim();
+    result = result.replace(new RegExp(escapeRegExp(mention.key), "g"), "").trim();
   }
   return result;
 }
@@ -280,18 +287,19 @@ function parseMediaKeys(
 } {
   try {
     const parsed = JSON.parse(content);
+    const imageKey = normalizeFeishuExternalKey(parsed.image_key);
+    const fileKey = normalizeFeishuExternalKey(parsed.file_key);
     switch (messageType) {
       case "image":
-        return { imageKey: parsed.image_key };
+        return { imageKey };
       case "file":
-        return { fileKey: parsed.file_key, fileName: parsed.file_name };
+        return { fileKey, fileName: parsed.file_name };
       case "audio":
-        return { fileKey: parsed.file_key };
+        return { fileKey };
       case "video":
-        // Video has both file_key (video) and image_key (thumbnail)
-        return { fileKey: parsed.file_key, imageKey: parsed.image_key };
+        return { fileKey, imageKey };
       case "sticker":
-        return { fileKey: parsed.file_key };
+        return { fileKey };
       default:
         return {};
     }
@@ -333,8 +341,11 @@ function parsePostContent(content: string): {
             if (mentionId) mentionIds.push(mentionId);
             textContent += `@${element.user_name || mentionId || ""}`;
           } else if (element.tag === "img" && element.image_key) {
-            // Embedded image
-            imageKeys.push(element.image_key);
+            // Embedded image - skip invalid keys silently
+            const imageKey = normalizeFeishuExternalKey(element.image_key);
+            if (imageKey) {
+              imageKeys.push(imageKey);
+            }
           }
         }
         textContent += "\n";
@@ -583,11 +594,11 @@ export async function handleFeishuMessage(params: {
 
   const log = runtime?.log ?? console.log;
   const error = runtime?.error ?? console.error;
+  const senderUserId = event.sender.sender_id.user_id?.trim() || undefined;
 
   // Dedup check: skip if this message was already processed
   const messageId = event.message.message_id;
-  const dedupAccountId = accountId || "default";
-  if (!tryRecordMessage(messageId, dedupAccountId)) {
+  if (!(await tryRecordMessagePersistent(messageId, account.accountId, log))) {
     log(`feishu: skipping duplicate message ${messageId}`);
     return;
   }
@@ -647,13 +658,14 @@ export async function handleFeishuMessage(params: {
     });
     const hasControlCommand = core.channel.text.hasControlCommand(ctx.content, cfg);
     const storeAllowFrom =
-      !isGroup && (dmPolicy !== "open" || shouldComputeCommandAuthorized)
+      !isGroup && dmPolicy !== "allowlist" && (dmPolicy !== "open" || shouldComputeCommandAuthorized)
         ? await core.channel.pairing.readAllowFromStore("feishu").catch(() => [])
         : [];
     const effectiveDmAllowFrom = [...configAllowFrom, ...storeAllowFrom];
     const dmAllowed = resolveFeishuAllowlistMatch({
       allowFrom: effectiveDmAllowFrom,
       senderId: ctx.senderOpenId,
+      senderIds: [senderUserId],
       senderName: ctx.senderName,
     }).allowed;
 
@@ -699,6 +711,7 @@ export async function handleFeishuMessage(params: {
     const senderAllowedForCommands = resolveFeishuAllowlistMatch({
       allowFrom: commandAllowFrom,
       senderId: ctx.senderOpenId,
+      senderIds: [senderUserId],
       senderName: ctx.senderName,
     }).allowed;
     const commandAuthorized = shouldComputeCommandAuthorized
@@ -717,7 +730,18 @@ export async function handleFeishuMessage(params: {
         return;
       }
 
-      const groupPolicy = feishuCfg?.groupPolicy ?? "open";
+      const defaultGroupPolicy = cfg.channels?.defaults?.groupPolicy;
+      const { groupPolicy, providerMissingFallbackApplied } = resolveOpenProviderRuntimeGroupPolicy({
+        providerConfigPresent: cfg.channels?.feishu !== undefined,
+        groupPolicy: feishuCfg?.groupPolicy,
+        defaultGroupPolicy,
+      });
+      warnMissingProviderGroupPolicyFallbackOnce({
+        providerMissingFallbackApplied,
+        providerKey: "feishu",
+        accountId: account.accountId,
+        log,
+      });
       const groupAllowFrom = feishuCfg?.groupAllowFrom ?? [];
 
       // Check if this GROUP is allowed (groupAllowFrom contains group IDs like oc_xxx, not user IDs)
@@ -740,6 +764,7 @@ export async function handleFeishuMessage(params: {
           groupPolicy: "allowlist",
           allowFrom: senderAllowFrom,
           senderId: ctx.senderOpenId,
+          senderIds: [senderUserId],
           senderName: ctx.senderName,
         });
         if (!senderAllowed) {
@@ -818,9 +843,10 @@ export async function handleFeishuMessage(params: {
     // When topicSessionMode is enabled, messages within a topic (identified by root_id)
     // get a separate session from the main group chat.
     let peerId = isGroup ? ctx.chatId : ctx.senderOpenId;
+    let topicSessionMode: "enabled" | "disabled" = "disabled";
     if (isGroup && ctx.rootId) {
       const groupConfig = resolveFeishuGroupConfig({ cfg: feishuCfg, groupId: ctx.chatId });
-      const topicSessionMode = groupConfig?.topicSessionMode ?? feishuCfg?.topicSessionMode ?? "disabled";
+      topicSessionMode = groupConfig?.topicSessionMode ?? feishuCfg?.topicSessionMode ?? "disabled";
       if (topicSessionMode === "enabled") {
         // Use chatId:topic:rootId as peer ID for topic-scoped sessions
         peerId = `${ctx.chatId}:topic:${ctx.rootId}`;
@@ -836,6 +862,13 @@ export async function handleFeishuMessage(params: {
         kind: isGroup ? "group" : "direct",
         id: peerId,
       },
+      parentPeer:
+        isGroup && ctx.rootId && topicSessionMode === "enabled"
+          ? {
+              kind: "group",
+              id: ctx.chatId,
+            }
+          : null,
     });
 
     // Dynamic agent creation for DM users

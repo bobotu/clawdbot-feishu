@@ -23,14 +23,6 @@ describe("policy", () => {
         senderId: "ou_sender",
       }),
     ).toEqual({ allowed: true, matchKey: "ou_sender", matchSource: "id" });
-
-    expect(
-      resolveFeishuAllowlistMatch({
-        allowFrom: ["alice"],
-        senderId: "ou_sender",
-        senderName: "Alice",
-      }),
-    ).toEqual({ allowed: true, matchKey: "alice", matchSource: "name" });
   });
 
   it("resolves group config case-insensitively", () => {

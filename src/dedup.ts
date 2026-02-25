@@ -1,31 +1,54 @@
-const DEDUP_TTL_MS = 30 * 60 * 1000;
-const DEDUP_MAX_SIZE = 1_000;
-const DEDUP_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-const processedMessageIds = new Map<string, number>();
-let lastCleanupTime = Date.now();
+import os from "node:os";
+import path from "node:path";
+import { createDedupeCache, createPersistentDedupe } from "openclaw/plugin-sdk";
 
-export function tryRecordMessage(messageId: string, scope = "default"): boolean {
-  const now = Date.now();
-  const dedupKey = `${scope}:${messageId}`;
+// Persistent TTL: 24 hours — survives restarts & WebSocket reconnects.
+const DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
+const MEMORY_MAX_SIZE = 1_000;
+const FILE_MAX_ENTRIES = 10_000;
 
-  if (now - lastCleanupTime > DEDUP_CLEANUP_INTERVAL_MS) {
-    for (const [id, ts] of processedMessageIds) {
-      if (now - ts > DEDUP_TTL_MS) {
-        processedMessageIds.delete(id);
-      }
-    }
-    lastCleanupTime = now;
+const memoryDedupe = createDedupeCache({ ttlMs: DEDUP_TTL_MS, maxSize: MEMORY_MAX_SIZE });
+
+function resolveStateDirFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  const stateOverride = env.OPENCLAW_STATE_DIR?.trim() || env.CLAWDBOT_STATE_DIR?.trim();
+  if (stateOverride) {
+    return stateOverride;
   }
-
-  if (processedMessageIds.has(dedupKey)) {
-    return false;
+  if (env.VITEST || env.NODE_ENV === "test") {
+    return path.join(os.tmpdir(), ["openclaw-vitest", String(process.pid)].join("-"));
   }
+  return path.join(os.homedir(), ".openclaw");
+}
 
-  if (processedMessageIds.size >= DEDUP_MAX_SIZE) {
-    const first = processedMessageIds.keys().next().value!;
-    processedMessageIds.delete(first);
-  }
+function resolveNamespaceFilePath(namespace: string): string {
+  const safe = namespace.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return path.join(resolveStateDirFromEnv(), "feishu", "dedup", `${safe}.json`);
+}
 
-  processedMessageIds.set(dedupKey, now);
-  return true;
+const persistentDedupe = createPersistentDedupe({
+  ttlMs: DEDUP_TTL_MS,
+  memoryMaxSize: MEMORY_MAX_SIZE,
+  fileMaxEntries: FILE_MAX_ENTRIES,
+  resolveFilePath: resolveNamespaceFilePath,
+});
+
+/**
+ * Synchronous dedup — memory only.
+ * Kept for backward compatibility; prefer {@link tryRecordMessagePersistent}.
+ */
+export function tryRecordMessage(messageId: string): boolean {
+  return !memoryDedupe.check(messageId);
+}
+
+export async function tryRecordMessagePersistent(
+  messageId: string,
+  namespace = "global",
+  log?: (...args: unknown[]) => void,
+): Promise<boolean> {
+  return persistentDedupe.checkAndRecord(messageId, {
+    namespace,
+    onDiskError: (error) => {
+      log?.(`feishu-dedup: disk error, falling back to memory: ${String(error)}`);
+    },
+  });
 }

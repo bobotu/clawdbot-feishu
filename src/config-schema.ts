@@ -196,6 +196,10 @@ export const FeishuConfigSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    const hasVerificationToken = (token: string | undefined): boolean => {
+      return typeof token === "string" && token.trim().length > 0;
+    };
+
     if (value.dmPolicy === "open") {
       const allowFrom = value.allowFrom ?? [];
       const hasWildcard = allowFrom.some((entry) => String(entry).trim() === "*");
@@ -204,6 +208,29 @@ export const FeishuConfigSchema = z
           code: z.ZodIssueCode.custom,
           path: ["allowFrom"],
           message: 'channels.feishu.dmPolicy="open" requires channels.feishu.allowFrom to include "*"',
+        });
+      }
+    }
+
+    const topLevelConnectionMode = value.connectionMode ?? "websocket";
+    if (topLevelConnectionMode === "webhook" && !hasVerificationToken(value.verificationToken)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verificationToken"],
+        message: 'channels.feishu.connectionMode="webhook" requires channels.feishu.verificationToken',
+      });
+    }
+
+    const accounts = value.accounts ?? {};
+    for (const [accountId, accountCfg] of Object.entries(accounts)) {
+      if (!accountCfg) continue;
+      const accountConnectionMode = accountCfg.connectionMode ?? topLevelConnectionMode;
+      const effectiveVerificationToken = accountCfg.verificationToken ?? value.verificationToken;
+      if (accountConnectionMode === "webhook" && !hasVerificationToken(effectiveVerificationToken)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["accounts", accountId, "verificationToken"],
+          message: `channels.feishu.accounts.${accountId}.connectionMode="webhook" requires verificationToken (account-level or top-level)`,
         });
       }
     }
