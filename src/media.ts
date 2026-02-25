@@ -3,7 +3,6 @@ import { createFeishuClient } from "./client.js";
 import { resolveFeishuAccount } from "./accounts.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { resolveReceiveIdType, normalizeFeishuTarget } from "./targets.js";
-import { normalizeFeishuExternalKey } from "./external-keys.js";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -79,11 +78,11 @@ export async function downloadImageFeishu(params: {
     }
     buffer = Buffer.concat(chunks);
   } else if (typeof responseAny.writeFile === "function") {
-    // SDK provides writeFile method - use a temp file
-    const tmpPath = path.join(os.tmpdir(), `feishu_img_${Date.now()}_${imageKey}`);
-    await responseAny.writeFile(tmpPath);
-    buffer = await fs.promises.readFile(tmpPath);
-    await fs.promises.unlink(tmpPath).catch(() => {}); // cleanup
+    // SDK provides writeFile method - use isolated temp directory
+    buffer = await withTempDownloadPath("openclaw-feishu-img-", async (tmpPath) => {
+      await responseAny.writeFile(tmpPath);
+      return await fs.promises.readFile(tmpPath);
+    });
   } else if (typeof responseAny[Symbol.asyncIterator] === "function") {
     // Response is an async iterable
     const chunks: Buffer[] = [];
@@ -161,11 +160,11 @@ export async function downloadMessageResourceFeishu(params: {
     }
     buffer = Buffer.concat(chunks);
   } else if (typeof responseAny.writeFile === "function") {
-    // SDK provides writeFile method - use a temp file
-    const tmpPath = path.join(os.tmpdir(), `feishu_${Date.now()}_${fileKey}`);
-    await responseAny.writeFile(tmpPath);
-    buffer = await fs.promises.readFile(tmpPath);
-    await fs.promises.unlink(tmpPath).catch(() => {}); // cleanup
+    // SDK provides writeFile method - use isolated temp directory
+    buffer = await withTempDownloadPath("openclaw-feishu-resource-", async (tmpPath) => {
+      await responseAny.writeFile(tmpPath);
+      return await fs.promises.readFile(tmpPath);
+    });
   } else if (typeof responseAny[Symbol.asyncIterator] === "function") {
     // Response is an async iterable
     const chunks: Buffer[] = [];

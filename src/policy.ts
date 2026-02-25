@@ -1,5 +1,6 @@
 import type { ChannelGroupContext, GroupToolPolicyConfig } from "openclaw/plugin-sdk";
 import type { FeishuConfig, FeishuGroupConfig } from "./types.js";
+import { normalizeFeishuTarget } from "./targets.js";
 
 export type FeishuAllowlistMatch = {
   allowed: boolean;
@@ -9,8 +10,11 @@ export type FeishuAllowlistMatch = {
 
 function normalizeFeishuAllowEntry(raw: string): string {
   const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (trimmed === "*") return "*";
   const withoutProviderPrefix = trimmed.replace(/^feishu:/i, "");
-  return withoutProviderPrefix.trim().toLowerCase();
+  const normalized = normalizeFeishuTarget(withoutProviderPrefix) ?? withoutProviderPrefix;
+  return normalized.trim().toLowerCase();
 }
 
 export function resolveFeishuAllowlistMatch(params: {

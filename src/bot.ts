@@ -322,12 +322,11 @@ function parsePostContent(content: string): {
             // Mention: @username
             textContent += `@${element.user_name || element.user_id || ""}`;
           } else if (element.tag === "img" && element.image_key) {
-            // Embedded image
-            const normalizedImageKey = normalizeFeishuExternalKey(element.image_key);
-            if (!normalizedImageKey) {
-              throw new Error("Feishu image download failed: invalid image_key");
+            // Embedded image - skip invalid keys silently
+            const imageKey = normalizeFeishuExternalKey(element.image_key);
+            if (imageKey) {
+              imageKeys.push(imageKey);
             }
-            imageKeys.push(normalizedImageKey);
           }
         }
         textContent += "\n";
